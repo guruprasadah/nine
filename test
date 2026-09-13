@@ -1,2 +1,5 @@
-let x_1: int = 1 2 + 2 *;
-let y: int = (x_1 3 +);
+let x: ptr ptr u32 = 5;
+
+fn a(b: i32, c: ptr f32) str {
+    let y: u32 = 6;
+}
