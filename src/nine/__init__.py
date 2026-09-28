@@ -1,5 +1,5 @@
 import argparse
-from enum import Enum, auto
+from enum import Enum
 from typing import Callable
 
 from pydantic import BaseModel
@@ -170,7 +170,7 @@ class ASTNode(BaseModel):
     pass
 
 class Expression(ASTNode):
-    pass
+    type: Type
 
 class IntegerLiteralExpression(Expression):
     value: int
@@ -222,6 +222,28 @@ def peek(tokens: list[Token], pos: int) -> Token | None:
     else:
         return None
 
+def int_primitive_kind(value: int) -> PrimitiveKind:
+    if value < 0:
+        if value >= -(1 << 7):
+            return PrimitiveKind.I8
+        if value >= -(1 << 15):
+            return PrimitiveKind.I16
+        if value >= -(1 << 31):
+            return PrimitiveKind.I32
+        if value >= -(1 << 63):
+            return PrimitiveKind.I64
+    else:
+        if value <= (1 << 8) - 1:
+            return PrimitiveKind.U8
+        if value <= (1 << 16) - 1:
+            return PrimitiveKind.U16
+        if value <= (1 << 32) - 1:
+            return PrimitiveKind.U32
+        if value <= (1 << 64) - 1:
+            return PrimitiveKind.U64
+
+    raise OverflowError(f"{value} does not fit in a 64-bit integer")
+
 def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
     stack: list[Expression] = []
 
@@ -229,19 +251,19 @@ def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
         tk = peek(tokens, pos)
         match tk:
             case IntegerLiteralToken():
-                stack.append(IntegerLiteralExpression(value=tk.value))
+                stack.append(IntegerLiteralExpression(value=tk.value, type=PrimitiveType(kind=int_primitive_kind(tk.value))))
                 pos += 1
             case FloatLiteralToken():
                 v = 0
                 for d in tk.digits:
                     v = d + (v * 10)
-                stack.append(FloatLiteralExpression(value=v/(10 ** tk.point)))
+                stack.append(FloatLiteralExpression(value=v/(10 ** tk.point), type=PrimitiveType(kind=PrimitiveKind.F64)))
                 pos += 1
             case StringLiteralToken():
-                stack.append(StringLiteralExpression(value=tk.value))
+                stack.append(StringLiteralExpression(value=tk.value, type=PrimitiveType(kind=PrimitiveKind.STR)))
                 pos += 1
             case KeywordToken(keyword=Keyword.TRUE | Keyword.FALSE):
-                stack.append(BoolLiteralExpression(value=(tk.keyword==Keyword.TRUE)))
+                stack.append(BoolLiteralExpression(value=(tk.keyword==Keyword.TRUE), type=PrimitiveType(kind=PrimitiveKind.BOOL)))
                 pos += 1
             case IdentifierToken():
                 stack.append(IdentifierExpression(name=tk.name))
