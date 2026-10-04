@@ -1,6 +1,7 @@
 import argparse
 from enum import Enum
 from typing import Callable
+from copy import deepcopy
 
 from pydantic import BaseModel
 
@@ -244,7 +245,7 @@ def int_primitive_kind(value: int) -> PrimitiveKind:
 
     raise OverflowError(f"{value} does not fit in a 64-bit integer")
 
-def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
+def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Expression, int]:
     stack: list[Expression] = []
 
     while True:
@@ -266,7 +267,9 @@ def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
                 stack.append(BoolLiteralExpression(value=(tk.keyword==Keyword.TRUE), type=PrimitiveType(kind=PrimitiveKind.BOOL)))
                 pos += 1
             case IdentifierToken():
-                stack.append(IdentifierExpression(name=tk.name))
+                if tk.name not in scope:
+                    raise RuntimeError(f"undefined reference to {tk.name}")
+                stack.append(IdentifierExpression(name=tk.name, type=scope[tk.name]))
                 pos += 1
             case SymbolToken(symbol=Symbol.ADD | Symbol.SUB | Symbol.MUL | Symbol.DIV as op):
                 if not len(stack) >= 2:
@@ -280,7 +283,9 @@ def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
                     raise RuntimeError("Expected function identifier")
                 if not isinstance(stack[-1], IdentifierExpression):
                     raise RuntimeError(f"Expected function identifier, got {type(stack[-1]).__name__} instead")
-                fc = FunctionCallExpression(function=stack[-1], arguments=stack[0:-1])
+                if not isinstance(stack[-1].type, FunctionType):
+                    raise RuntimeError(f"cannot call non-function {stack[-1].name}")
+                fc = FunctionCallExpression(function=stack[-1], arguments=stack[0:-1], type=stack[-1].type.return_type)
                 stack.clear()
                 stack.append(fc)
                 pos += 1
@@ -293,7 +298,7 @@ def parse_expression(tokens: list[Token], pos: int) -> tuple[Expression, int]:
                 pos += 1
             case SymbolToken(symbol=Symbol.LP_N):
                 pos += 1
-                exp, pos = parse_expression(tokens, pos)
+                exp, pos = parse_expression(tokens, pos, scope)
                 t = peek(tokens, pos)
                 if not is_sym(tokens, pos, Symbol.RP_N):
                     raise RuntimeError(f"Expected right paren, got {type(t).__name__} instead")
@@ -318,7 +323,7 @@ def quals_to_type(quals: list[str]) -> Type:
             raise RuntimeError("Unknown type qualifier")
     return type
 
-def parse_type(tokens: list[Token], pos: int, terminate: Callable[[Token], bool]) -> tuple[Type, int]:
+def parse_type(tokens: list[Token], pos: int, scope: dict[str, Type], terminate: Callable[[Token], bool]) -> tuple[Type, int]:
     quals: list[str] = []
     while True:
         if terminate(tk := tokens[pos]):
@@ -329,7 +334,7 @@ def parse_type(tokens: list[Token], pos: int, terminate: Callable[[Token], bool]
         pos += 1
     return quals_to_type(quals), pos
 
-def parse_let(tokens: list[Token], pos: int) -> tuple[Statement, int]:
+def parse_let(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int]:
     pos += 1
     iden = peek(tokens, pos)
     if not isinstance(iden, IdentifierToken):
@@ -339,35 +344,38 @@ def parse_let(tokens: list[Token], pos: int) -> tuple[Statement, int]:
     if not is_sym(tokens, pos, Symbol.COLON):
         raise RuntimeError(f"expected colon, got {type(col).__name__} instead")
     pos += 1
-    v_type, pos = parse_type(tokens, pos, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.EQ)
+    v_type, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.EQ)
     pos += 1
-    exp, pos = parse_expression(tokens, pos)
+    exp, pos = parse_expression(tokens, pos, scope)
     sem = peek(tokens, pos)
     if not is_sym(tokens, pos, Symbol.SEMICOLON):
         raise RuntimeError(f"expected semicolon, got {type(sem).__name__} instead")
     pos += 1
+    if iden.name in scope:
+        raise RuntimeError(f"re-definition of {iden.name}")
+    scope[iden.name] = v_type
     return LetStatement(identifier=iden.name, type=v_type, initializer=exp), pos
 
-def parse_if(tokens: list[Token], pos: int) -> tuple[Statement, int]:
+def parse_if(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int]:
     pos += 1
-    exp, pos = parse_expression(tokens, pos)
+    exp, pos = parse_expression(tokens, pos, scope)
     tk = peek(tokens, pos)
     if not is_sym(tokens, pos, Symbol.LP_C):
         raise RuntimeError(f"Expected left curly parentheses, got {tk} instead")
     pos += 1
     body: list[Statement] = []
-    body, pos = parse_block(tokens, pos, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
+    body, pos = parse_block(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
     pos += 1
     return IfStatement(condition=exp,body=body), pos
 
-def parse_expression_list(tokens: list[Token], pos: int, terminate: Callable[[Token], bool]) -> tuple[list[Expression], int]:
+def parse_expression_list(tokens: list[Token], pos: int, scope: dict[str, Type], terminate: Callable[[Token], bool]) -> tuple[list[Expression], int]:
     exps: list[Expression] = []
     while not terminate(tokens[pos]):
-        e, pos = parse_expression(tokens, pos)
+        e, pos = parse_expression(tokens, pos, scope)
         exps.append(e)
     return exps, pos
 
-def parse_fn(tokens: list[Token], pos: int) -> tuple[Statement, int]:
+def parse_fn(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int]:
     pos += 1
     tk = peek(tokens, pos)
     if not isinstance(tk, IdentifierToken):
@@ -388,7 +396,7 @@ def parse_fn(tokens: list[Token], pos: int) -> tuple[Statement, int]:
         if not is_sym(tokens, pos, Symbol.COLON):
             raise RuntimeError(f"Expected colon, got {col} instead")
         pos += 1
-        typ, pos = parse_type(tokens, pos, lambda x: isinstance(x, SymbolToken) and x.symbol in (Symbol.COMMA, Symbol.RP_N))
+        typ, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol in (Symbol.COMMA, Symbol.RP_N))
         arguments.append((arg_identifier.name, typ))
         tk = peek(tokens, pos)
         if is_sym(tokens, pos, Symbol.COMMA):
@@ -398,32 +406,36 @@ def parse_fn(tokens: list[Token], pos: int) -> tuple[Statement, int]:
         else:
             raise RuntimeError(f"Unexpected {tk}")
     pos += 1
-    ret, pos = parse_type(tokens, pos, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.LP_C)
+    ret, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.LP_C)
     tk = peek(tokens, pos)
     if not is_sym(tokens, pos, Symbol.LP_C):
         raise RuntimeError(f"Expected left curly bracket, got {tk} instead")
     pos += 1
-    body, pos = parse_block(tokens, pos, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
+    body, pos = parse_block(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
     pos += 1
     f_type = FunctionType(parameters=tuple([x[1] for x in arguments]), return_type=ret)
+    if identifier in scope:
+        raise RuntimeError(f"re-definition of {identifier}")
+    scope[identifier] = f_type
     return FunctionDeclStatement(identifier=identifier, type=f_type, body=body), pos
 
-def parse_statement(tokens: list[Token], pos: int) -> tuple[Statement, int] | None:
+def parse_statement(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int] | None:
     tk = peek(tokens, pos)
     match tk:
         case KeywordToken(keyword=Keyword.LET):
-            return parse_let(tokens=tokens, pos=pos)
+            return parse_let(tokens=tokens, pos=pos, scope=scope)
         case KeywordToken(keyword=Keyword.IF):
-            return parse_if(tokens=tokens, pos=pos)
+            return parse_if(tokens=tokens, pos=pos, scope=scope)
         case KeywordToken(keyword=Keyword.FN):
-            return parse_fn(tokens=tokens, pos=pos)
+            return parse_fn(tokens=tokens, pos=pos, scope=scope)
         case _:
             return None
 
-def parse_block(tokens: list[Token], pos: int, terminate: Callable[[Token], bool]) -> tuple[list[Statement], int]:
+def parse_block(tokens: list[Token], pos: int, scope: dict[str, Type], terminate: Callable[[Token], bool]) -> tuple[list[Statement], int]:
+    scope = deepcopy(scope)
     nodes: list[Statement] = []
     while True:
-        st = parse_statement(tokens, pos)
+        st = parse_statement(tokens, pos, scope)
         if st is None:
             if terminate(tokens[pos]):
                 return nodes, pos
@@ -434,7 +446,7 @@ def parse_block(tokens: list[Token], pos: int, terminate: Callable[[Token], bool
             pos = st[1]
 
 def parse_program(tokens: list[Token]) -> list[Statement]:
-    return parse_block(tokens, 0, lambda x: isinstance(x, EOFToken))[0]
+    return parse_block(tokens, 0, {}, lambda x: isinstance(x, EOFToken))[0]
 
 def main() -> None:
     parser = argparse.ArgumentParser()
