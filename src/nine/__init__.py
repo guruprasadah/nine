@@ -150,6 +150,7 @@ class PrimitiveKind(Enum):
     U16 = "u16"
     U32 = "u32"
     U64 = "u64"
+    ILITERAL = "iliteral"
     F32 = "f32"
     F64 = "f64"
     BOOL = "bool"
@@ -252,7 +253,9 @@ def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> t
         tk = peek(tokens, pos)
         match tk:
             case IntegerLiteralToken():
-                stack.append(IntegerLiteralExpression(value=tk.value, type=PrimitiveType(kind=int_primitive_kind(tk.value))))
+                # Abandon rigid typing in favor of flexible literals
+                # stack.append(IntegerLiteralExpression(value=tk.value, type=PrimitiveType(kind=int_primitive_kind(tk.value))))
+                stack.append(IntegerLiteralExpression(value=tk.value, type=PrimitiveType(kind=PrimitiveKind.ILITERAL)))
                 pos += 1
             case FloatLiteralToken():
                 v = 0
@@ -276,7 +279,7 @@ def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> t
                     raise RuntimeError("At least 2 operands required for binary operator")
                 right = stack.pop()
                 left = stack.pop()
-                stack.append(BinaryExpression(left=left, right=right, operator=op))
+                stack.append(BinaryExpression(type=left.type if getattr(left.type, "kind", None) != PrimitiveKind.ILITERAL else right.type ,left=left, right=right, operator=op))
                 pos += 1
             case KeywordToken(keyword=Keyword.CALL):
                 if not stack:
