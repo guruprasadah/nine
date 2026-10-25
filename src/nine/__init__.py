@@ -395,36 +395,46 @@ def parse_fn(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Sta
         raise RuntimeError(f"Expected left parentheses, got {tk} instead")
     pos += 1
     arguments: list[tuple[str, Type]] = []
-    while True:
-        arg_identifier = tokens[pos]
-        if not isinstance(arg_identifier, IdentifierToken):
-            raise RuntimeError(f"Expected identifier, got {arg_identifier} instead")
+    og_scope = scope
+    scope = deepcopy(scope)
+    if is_sym(tokens, pos, Symbol.RP_N):
         pos += 1
-        col = peek(tokens, pos)
-        if not is_sym(tokens, pos, Symbol.COLON):
-            raise RuntimeError(f"Expected colon, got {col} instead")
-        pos += 1
-        typ, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol in (Symbol.COMMA, Symbol.RP_N))
-        arguments.append((arg_identifier.name, typ))
-        tk = peek(tokens, pos)
-        if is_sym(tokens, pos, Symbol.COMMA):
+    else:
+        while True:
+            arg_identifier = tokens[pos]
+            if not isinstance(arg_identifier, IdentifierToken):
+                raise RuntimeError(f"Expected identifier, got {arg_identifier} instead")
+            if arg_identifier.name in scope and arg_identifier.name not in og_scope:
+                raise RuntimeError(f"re-definition of {arg_identifier.name} as argument")
             pos += 1
-        elif is_sym(tokens, pos, Symbol.RP_N):
-            break
-        else:
-            raise RuntimeError(f"Unexpected {tk}")
-    pos += 1
+            col = peek(tokens, pos)
+            if not is_sym(tokens, pos, Symbol.COLON):
+                raise RuntimeError(f"Expected colon, got {col} instead")
+            pos += 1
+            typ, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol in (Symbol.COMMA, Symbol.RP_N))
+            scope[arg_identifier.name] = typ
+            arguments.append((arg_identifier.name, typ))
+            tk = peek(tokens, pos)
+            if is_sym(tokens, pos, Symbol.COMMA):
+                pos += 1
+            elif is_sym(tokens, pos, Symbol.RP_N):
+                break
+            else:
+                raise RuntimeError(f"Unexpected {tk}")
+        pos += 1
+    print(tokens[pos])
     ret, pos = parse_type(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.LP_C)
     tk = peek(tokens, pos)
     if not is_sym(tokens, pos, Symbol.LP_C):
         raise RuntimeError(f"Expected left curly bracket, got {tk} instead")
     pos += 1
-    body, pos = parse_block(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
-    pos += 1
     f_type = FunctionType(parameters=tuple([x[1] for x in arguments]), return_type=ret)
     if identifier in scope:
         raise RuntimeError(f"re-definition of {identifier}")
     scope[identifier] = f_type
+    og_scope[identifier] = f_type
+    body, pos = parse_block(tokens, pos, scope, lambda x: isinstance(x, SymbolToken) and x.symbol == Symbol.RP_C)
+    pos += 1
     return FunctionDeclStatement(identifier=identifier, type=f_type, body=body), pos
 
 def parse_return(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int]:
