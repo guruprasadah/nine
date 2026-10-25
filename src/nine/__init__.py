@@ -216,6 +216,9 @@ class FunctionDeclStatement(Statement):
     type: FunctionType
     body: list[Statement]
 
+class ReturnStatement(Statement):
+    value: Expression
+
 def is_sym(tokens: list[Token], pos: int, symbol: Symbol) -> bool:
     return isinstance(tk:=tokens[pos], SymbolToken) and tk.symbol == symbol
 
@@ -420,6 +423,11 @@ def parse_fn(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Sta
     scope[identifier] = f_type
     return FunctionDeclStatement(identifier=identifier, type=f_type, body=body), pos
 
+def parse_return(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int]:
+    pos += 1
+    expr, pos = parse_expression(tokens, pos, scope)
+    return ReturnStatement(value=expr), pos
+
 def parse_statement(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int] | None:
     tk = peek(tokens, pos)
     match tk:
@@ -429,6 +437,8 @@ def parse_statement(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tu
             return parse_if(tokens=tokens, pos=pos, scope=scope)
         case KeywordToken(keyword=Keyword.FN):
             return parse_fn(tokens=tokens, pos=pos, scope=scope)
+        case KeywordToken(keyword=Keyword.RETURN):
+            return parse_return(tokens=tokens, pos=pos, scope=scope)
         case _:
             return None
 
