@@ -298,7 +298,7 @@ def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> t
                     raise RuntimeError("At least 2 operands required for binary operator")
                 right = stack.pop()
                 left = stack.pop()
-                stack.append(BinaryExpression(left=left, right=right, operator=kw))
+                stack.append(BinaryExpression(type=PrimitiveType(kind=PrimitiveKind.BOOL), left=left, right=right, operator=kw))
                 pos += 1
             case SymbolToken(symbol=Symbol.LP_N):
                 pos += 1
