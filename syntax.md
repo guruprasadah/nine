@@ -41,4 +41,5 @@ Statements:
 - let statement: for creating a variable at the current scope
   - syntax:
     let x: type = value;
-- = statement: assignment statement
+- = statement: assignment statement (postfix)
+    * = x 5;

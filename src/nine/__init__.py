@@ -219,6 +219,10 @@ class FunctionDeclStatement(Statement):
 class ReturnStatement(Statement):
     value: Expression
 
+class AssignmentStatement(Statement):
+    identifier: str
+    value: Expression
+
 def is_sym(tokens: list[Token], pos: int, symbol: Symbol) -> bool:
     return isinstance(tk:=tokens[pos], SymbolToken) and tk.symbol == symbol
 
@@ -428,6 +432,19 @@ def parse_return(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple
     expr, pos = parse_expression(tokens, pos, scope)
     return ReturnStatement(value=expr), pos
 
+def parse_assignment(tokens: list[Token], pos: int, scope: dict[str, Type]):
+    pos += 1
+    if not isinstance(tk := tokens[pos], IdentifierToken):
+        raise RuntimeError(f"Expected identifier, got {type(tokens[pos]).__name__} instead")
+    if tk.name not in scope:
+        raise RuntimeError(f"undefined reference to {tk.name}")
+    pos += 1
+    expr, pos = parse_expression(tokens, pos, scope)
+    if not is_sym(tokens, pos, Symbol.SEMICOLON):
+        raise RuntimeError(f"expected ';', got {tokens[pos]} instead")
+    pos += 1
+    return AssignmentStatement(identifier=tk.name, value=expr), pos
+
 def parse_statement(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tuple[Statement, int] | None:
     tk = peek(tokens, pos)
     match tk:
@@ -439,6 +456,8 @@ def parse_statement(tokens: list[Token], pos: int, scope: dict[str, Type]) -> tu
             return parse_fn(tokens=tokens, pos=pos, scope=scope)
         case KeywordToken(keyword=Keyword.RETURN):
             return parse_return(tokens=tokens, pos=pos, scope=scope)
+        case SymbolToken(symbol=Symbol.EQ):
+            return parse_assignment(tokens=tokens, pos=pos, scope=scope)
         case _:
             return None
 
