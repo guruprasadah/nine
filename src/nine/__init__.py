@@ -60,10 +60,6 @@ class SymbolToken(Token):
 class EOFToken(Token):
     pass
 
-class LexingState(Enum):
-    NONE = "none"
-    STRING = "string"
-
 def lex_literal_number(program: str, pos: int, tokens: list[Token]) -> int:
     digits: list[int] = []
     pl = len(program)
@@ -121,7 +117,6 @@ def lex(program: str) -> list[Token]:
     pos: int = 0
     pl = len(program)
     tokens = []
-    buf: list[str] = []
     while pos < pl:
         c = program[pos]
         if c.isspace():
