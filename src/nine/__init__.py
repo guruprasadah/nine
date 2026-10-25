@@ -2,6 +2,7 @@ import argparse
 from enum import Enum
 from typing import Callable
 from copy import deepcopy
+from decimal import Decimal, getcontext
 
 from pydantic import BaseModel
 
@@ -16,8 +17,7 @@ class IntegerLiteralToken(LiteralToken):
     value: int
 
 class FloatLiteralToken(LiteralToken):
-    digits: list[int]
-    point: int
+    value: Decimal
 
 class StringLiteralToken(LiteralToken):
     value: str
@@ -61,27 +61,30 @@ class EOFToken(Token):
     pass
 
 def lex_literal_number(program: str, pos: int, tokens: list[Token]) -> int:
-    digits: list[int] = []
+    digits: list[str] = []
     pl = len(program)
-    point = 0
     fp = False
+    sign = 1
+    if program[pos] == Symbol.SUB.value:
+        sign = -1
+        pos += 1
     while pos < pl:
         if (c := program[pos]).isdigit():
-            digits.append(int(program[pos]))
-            if fp:
-                point += 1
+            digits.append(program[pos])
         elif c == "." and not fp:
             fp = True
+            digits.append('.')
         else:
             break
         pos += 1
     if not fp:
         num = 0
         for dig in digits:
-            num = dig + num * 10
-        tokens.append(IntegerLiteralToken(value=num))
+            num = int(dig) + num * 10
+        tokens.append(IntegerLiteralToken(value=num * sign))
     else:
-        tokens.append(FloatLiteralToken(digits=digits, point=point))
+        getcontext().prec = 50
+        tokens.append(FloatLiteralToken(value=Decimal("".join(digits))))
     return pos
 
 def lex_literal_string(program: str, pos: int, tokens: list[Token]):
@@ -123,8 +126,11 @@ def lex(program: str) -> list[Token]:
             pos += 1
             continue
         elif c in Symbol:
-            tokens.append(SymbolToken(symbol=Symbol(c)))
-            pos += 1
+            if pos + 1 < pl and program[pos + 1].isdigit():
+                pos = lex_literal_number(program, pos, tokens)
+            else:
+                tokens.append(SymbolToken(symbol=Symbol(c)))
+                pos += 1
         elif c.isdigit():
             pos = lex_literal_number(program, pos, tokens)
         elif c == '"':
@@ -173,7 +179,7 @@ class IntegerLiteralExpression(Expression):
     value: int
 
 class FloatLiteralExpression(Expression):
-    value: float
+    value: Decimal
 
 class StringLiteralExpression(Expression):
     value: str
@@ -253,10 +259,7 @@ def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> t
                 stack.append(IntegerLiteralExpression(value=tk.value, type=PrimitiveType(kind=PrimitiveKind.ILITERAL)))
                 pos += 1
             case FloatLiteralToken():
-                v = 0
-                for d in tk.digits:
-                    v = d + (v * 10)
-                stack.append(FloatLiteralExpression(value=v/(10 ** tk.point), type=PrimitiveType(kind=PrimitiveKind.F64)))
+                stack.append(FloatLiteralExpression(value=tk.value, type=PrimitiveType(kind=PrimitiveKind.F64)))
                 pos += 1
             case StringLiteralToken():
                 stack.append(StringLiteralExpression(value=tk.value, type=PrimitiveType(kind=PrimitiveKind.STR)))
