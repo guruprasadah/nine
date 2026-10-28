@@ -5,6 +5,9 @@ fn a(b: i32, c: ptr f32) str {
     let f: f32 = 5.55;
     = a -5.56;
     let z: u32 = y x +;
+    if ( 1 5 > 5 5 = and !) {
+        
+    }
 }
 
 fn dock() str {

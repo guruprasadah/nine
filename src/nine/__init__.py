@@ -44,6 +44,9 @@ class Symbol(Enum):
     MUL = "*"
     DIV = "/"
     EQ = "="
+    GT=">"
+    LT="<"
+    NOT = "!"
     LP_N = "("
     RP_N = ")"
     LP_S = "["
@@ -195,6 +198,10 @@ class BinaryExpression(Expression):
     right: Expression
     operator: Symbol | Keyword
 
+class UnaryExpression(Expression):
+    op: Expression
+    operator: Symbol | Keyword
+
 class FunctionCallExpression(Expression):
     function: IdentifierExpression
     arguments: list[Expression]
@@ -279,12 +286,18 @@ def parse_expression(tokens: list[Token], pos: int, scope: dict[str, Type]) -> t
                     raise RuntimeError(f"undefined reference to {tk.name}")
                 stack.append(IdentifierExpression(name=tk.name, type=scope[tk.name]))
                 pos += 1
-            case SymbolToken(symbol=Symbol.ADD | Symbol.SUB | Symbol.MUL | Symbol.DIV as op):
+            case SymbolToken(symbol=Symbol.ADD | Symbol.SUB | Symbol.MUL | Symbol.DIV | Symbol.EQ | Symbol.GT | Symbol.LT as op):
                 if not len(stack) >= 2:
                     raise RuntimeError("At least 2 operands required for binary operator")
                 right = stack.pop()
                 left = stack.pop()
                 stack.append(BinaryExpression(type=left.type if getattr(left.type, "kind", None) != PrimitiveKind.ILITERAL else right.type ,left=left, right=right, operator=op))
+                pos += 1
+            case SymbolToken(symbol=Symbol.NOT as op):
+                if not len(stack) >= 1:
+                    raise RuntimeError("At least 1 operand required for unary operator")
+                unary_operand = stack.pop()
+                stack.append(UnaryExpression(type=unary_operand.type, op=unary_operand, operator=op))
                 pos += 1
             case KeywordToken(keyword=Keyword.CALL):
                 if not stack:
