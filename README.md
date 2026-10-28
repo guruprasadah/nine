@@ -48,3 +48,7 @@ Statements:
     let x: type = value;
 - = statement: assignment statement (postfix)
     * = x 5;
+
+# Notes
+- Integer literals are typed as I64 by default, switching to U64 if larger than 2^63 - 1
+- Float literals are typed as F64 by default
