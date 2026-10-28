@@ -84,7 +84,7 @@ def lex_literal_number(program: str, pos: int, tokens: list[Token]) -> int:
         tokens.append(IntegerLiteralToken(value=num * sign))
     else:
         getcontext().prec = 50
-        tokens.append(FloatLiteralToken(value=Decimal("".join(digits))))
+        tokens.append(FloatLiteralToken(value=Decimal("".join(digits)) * sign))
     return pos
 
 def lex_literal_string(program: str, pos: int, tokens: list[Token]):
